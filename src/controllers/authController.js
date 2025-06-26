@@ -52,11 +52,14 @@ exports.googleAuth = async (req, res) => {
 
     let user = await User.findOne({ email });
     if (!user) {
-      user = await User.create({ name, email, password: Math.random().toString(36) });
+      user = await User.create({ name, email, password: Math.random().toString(36), role: 'user' });
     }
 
     const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user: { id: user._id, name: user.name, email: user.email } });
+    res.json({
+      token,
+      user: { id: user._id, name: user.name, email: user.email, role: user.role }
+    });
   } catch (err) {
     console.error(err); // Add this for debugging
     res.status(401).json({ message: 'Google authentication failed', error: err.message });
