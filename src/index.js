@@ -22,7 +22,7 @@ app.get('/', (req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
-app.use('./uploads', express.static('uploads')); // Serve uploaded images
+app.use('/uploads', express.static('uploads')); // Serve uploaded images
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
