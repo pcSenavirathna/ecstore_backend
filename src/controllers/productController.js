@@ -2,10 +2,11 @@ const Product = require('../models/Product');
 
 exports.createProduct = async (req, res) => {
   try {
-    const imagePaths = req.files ? req.files.map(file => file.path) : [];
+    // Cloudinary returns the URL in file.path
+    const imageUrls = req.files ? req.files.map(file => file.path) : [];
     const productData = {
       ...req.body,
-      images: imagePaths,
+      images: imageUrls,
     };
     const product = await Product.create(productData);
     res.status(201).json(product);
