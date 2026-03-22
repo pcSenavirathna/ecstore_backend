@@ -9,7 +9,13 @@ const productSchema = new mongoose.Schema({
   description: String,
   discount: Number,
   stock: Number,
-  colors: [String], // <-- Add this line
+  colors: [String], // Array of colors
+  sizes: [String], // Array of sizes
+  variantType: {
+    type: String,
+    enum: ['colors', 'sizes', null],
+    default: null
+  },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Product', productSchema);
