@@ -4,6 +4,7 @@ const {
   createOrder,
   getUserOrders,
   getOrderById,
+	getAllOrdersAdmin,
   updateOrderReceipt,
   updateOrderStatus,
 } = require('../controllers/ordersController');
@@ -15,6 +16,9 @@ router.post('/', authMiddleware, upload.single('receipt'), createOrder);
 
 // Get all orders for logged-in user (protected)
 router.get('/', authMiddleware, getUserOrders);
+
+// Get all orders for admin (protected)
+router.get('/admin/all', authMiddleware, getAllOrdersAdmin);
 
 // Get specific order by ID (protected)
 router.get('/:orderId', authMiddleware, getOrderById);
