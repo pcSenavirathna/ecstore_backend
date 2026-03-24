@@ -10,9 +10,12 @@ cloudinary.config({
 
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
-  params: {
-    folder: 'ecstore-products',
-    allowed_formats: ['jpg', 'png', 'jpeg'],
+  params: (req, file) => {
+    const folder = file.fieldname === 'receipt' ? 'ecstore-receipts' : 'ecstore-products';
+    return {
+      folder,
+      allowed_formats: ['jpg', 'png', 'jpeg'],
+    };
   },
 });
 

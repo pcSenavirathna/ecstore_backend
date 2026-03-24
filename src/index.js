@@ -4,6 +4,7 @@ const connectDB = require('./config/db');
 
 const authRoutes = require('./routes/auth');
 const productRoutes = require('./routes/products');
+const ordersRoutes = require('./routes/orders');
 
 const cors = require('cors');
 
@@ -22,6 +23,7 @@ app.get('/', (req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
+app.use('/api/orders', ordersRoutes);
 app.use('/uploads', express.static('uploads')); // Serve uploaded images
 
 
