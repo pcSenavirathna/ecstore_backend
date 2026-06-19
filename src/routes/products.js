@@ -49,14 +49,15 @@ router.put('/:id', upload.array('images', 10), async (req, res) => {
 		};
 
 		// Handle images
+		const existingImages = req.body.existingImages || req.body['existingImages[]'] || req.body.images;
 		if (req.files && req.files.length > 0) {
 			// New images uploaded via Cloudinary
 			updateData.images = req.files.map(file => file.path);
-		} else if (req.body.images) {
-			// Images from JSON body (existing images)
-			updateData.images = Array.isArray(req.body.images)
-				? req.body.images
-				: [req.body.images];
+		} else if (existingImages) {
+			// Preserve existing image URLs when the client sends them back
+			updateData.images = Array.isArray(existingImages)
+				? existingImages
+				: [existingImages];
 		}
 
 		const updatedProduct = await Product.findByIdAndUpdate(
