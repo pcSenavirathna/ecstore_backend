@@ -258,8 +258,9 @@ exports.addOrderItemFeedback = async (req, res) => {
 		}
 
 		const reviews = product.feedbacks.length;
+		const totalRating = product.feedbacks.reduce((sum, feedback) => sum + (Number(feedback.rating) || 0), 0);
 		product.reviews = reviews;
-		product.rating = 5;
+		product.rating = reviews > 0 ? Number((totalRating / reviews).toFixed(1)) : 0;
 
 		await product.save();
 

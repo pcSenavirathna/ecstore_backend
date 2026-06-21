@@ -24,9 +24,12 @@ const withPublicProductStats = (product, soldCountMap) => {
 	const data = product.toObject ? product.toObject() : product;
 	const feedbacks = Array.isArray(data.feedbacks) ? data.feedbacks : [];
 	const reviews = feedbacks.length;
+	const totalRating = feedbacks.reduce((sum, item) => sum + (Number(item.rating) || 0), 0);
+	const rating = reviews > 0 ? (totalRating / reviews) : 0;
+
 	return {
 		...data,
-		rating: 5,
+		rating: Number(rating.toFixed(1)),
 		reviews,
 		soldCount: soldCountMap.get(String(data._id)) || 0,
 	};
