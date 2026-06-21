@@ -169,7 +169,7 @@ exports.getUserOrders = async (req, res) => {
 
     const orders = await Order.find({ userId })
       .sort({ createdAt: -1 })
-      .populate('items.productId', 'name');
+      .populate('items.productId', 'name feedbacks rating reviews');
 
     res.status(200).json(orders);
   } catch (error) {
@@ -197,6 +197,80 @@ exports.getOrderById = async (req, res) => {
     console.error('Error fetching order:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
+};
+
+// Add or update feedback for a delivered item in the customer's own order
+exports.addOrderItemFeedback = async (req, res) => {
+	try {
+		const { orderId, productId } = req.params;
+		const userId = req.userId;
+		const rating = Number(req.body.rating);
+		const comment = String(req.body.comment || '').trim();
+
+		if (!mongoose.Types.ObjectId.isValid(orderId) || !mongoose.Types.ObjectId.isValid(productId)) {
+			return res.status(400).json({ message: 'Invalid order or product' });
+		}
+
+		if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+			return res.status(400).json({ message: 'Rating must be between 1 and 5' });
+		}
+
+		if (!comment) {
+			return res.status(400).json({ message: 'Feedback comment is required' });
+		}
+
+		const order = await Order.findOne({ _id: orderId, userId });
+		if (!order) {
+			return res.status(404).json({ message: 'Order not found' });
+		}
+
+		if (order.orderStatus !== 'delivered') {
+			return res.status(400).json({ message: 'Feedback can be added after the order is delivered' });
+		}
+
+		const hasProduct = order.items.some((item) => String(item.productId) === String(productId));
+		if (!hasProduct) {
+			return res.status(400).json({ message: 'This product is not in the selected order' });
+		}
+
+		const product = await Product.findById(productId);
+		if (!product) {
+			return res.status(404).json({ message: 'Product not found' });
+		}
+
+		const user = await User.findById(userId).select('name');
+		const existingFeedback = product.feedbacks.find((feedback) =>
+			String(feedback.userId) === String(userId) && String(feedback.orderId) === String(orderId)
+		);
+
+		if (existingFeedback) {
+			existingFeedback.rating = rating;
+			existingFeedback.comment = comment;
+			existingFeedback.createdAt = new Date();
+		} else {
+			product.feedbacks.push({
+				userId,
+				userName: user?.name || 'Customer',
+				orderId,
+				rating,
+				comment,
+			});
+		}
+
+		const reviews = product.feedbacks.length;
+		product.reviews = reviews;
+		product.rating = 5;
+
+		await product.save();
+
+		res.status(200).json({
+			message: 'Feedback saved successfully',
+			product,
+		});
+	} catch (error) {
+		console.error('Error saving feedback:', error);
+		res.status(500).json({ message: 'Server error', error: error.message });
+	}
 };
 
 // Get all orders (admin only)

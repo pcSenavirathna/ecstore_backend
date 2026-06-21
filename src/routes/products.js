@@ -3,6 +3,34 @@ const router = express.Router();
 const upload = require('../middlewares/upload');
 const productController = require('../controllers/productController');
 const Product = require('../models/Product');
+const Order = require('../models/Order');
+
+const getDeliveredSoldCounts = async () => {
+	const soldCounts = await Order.aggregate([
+		{ $match: { orderStatus: 'delivered' } },
+		{ $unwind: '$items' },
+		{
+			$group: {
+				_id: '$items.productId',
+				soldCount: { $sum: '$items.quantity' },
+			},
+		},
+	]);
+
+	return new Map(soldCounts.map((item) => [String(item._id), item.soldCount]));
+};
+
+const withPublicProductStats = (product, soldCountMap) => {
+	const data = product.toObject ? product.toObject() : product;
+	const feedbacks = Array.isArray(data.feedbacks) ? data.feedbacks : [];
+	const reviews = feedbacks.length;
+	return {
+		...data,
+		rating: 5,
+		reviews,
+		soldCount: soldCountMap.get(String(data._id)) || 0,
+	};
+};
 
 // Use 'images' as the field name, allow multiple files
 router.post('/', upload.array('images', 10), productController.createProduct);
@@ -21,7 +49,23 @@ router.get('/count', async (req, res) => {
 router.get('/', async (req, res) => {
 	try {
 		const products = await Product.find();
-		res.json(products);
+		const soldCountMap = await getDeliveredSoldCounts();
+		res.json(products.map((product) => withPublicProductStats(product, soldCountMap)));
+	} catch (err) {
+		res.status(500).json({ message: err.message });
+	}
+});
+
+// Get one product with feedbacks and real sold count
+router.get('/:id', async (req, res) => {
+	try {
+		const product = await Product.findById(req.params.id);
+		if (!product) {
+			return res.status(404).json({ message: 'Product not found' });
+		}
+
+		const soldCountMap = await getDeliveredSoldCounts();
+		res.json(withPublicProductStats(product, soldCountMap));
 	} catch (err) {
 		res.status(500).json({ message: err.message });
 	}

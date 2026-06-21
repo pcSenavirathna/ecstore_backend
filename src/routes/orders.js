@@ -4,9 +4,10 @@ const {
   createOrder,
   getUserOrders,
   getOrderById,
-	getAllOrdersAdmin,
+  getAllOrdersAdmin,
   updateOrderReceipt,
   updateOrderStatus,
+  addOrderItemFeedback,
 } = require('../controllers/ordersController');
 const authMiddleware = require('../middlewares/auth');
 const upload = require('../middlewares/upload');
@@ -25,6 +26,9 @@ router.get('/:orderId', authMiddleware, getOrderById);
 
 // Update bank transfer receipt (protected)
 router.put('/:orderId/receipt', authMiddleware, upload.single('receipt'), updateOrderReceipt);
+
+// Add delivered item feedback (protected)
+router.post('/:orderId/items/:productId/feedback', authMiddleware, addOrderItemFeedback);
 
 // Update order status (protected)
 router.put('/:orderId/status', authMiddleware, updateOrderStatus);
