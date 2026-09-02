@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const upload = require('../middlewares/upload');
+const authMiddleware = require('../middlewares/auth');
+const adminMiddleware = require('../middlewares/admin');
 const productController = require('../controllers/productController');
 const Product = require('../models/Product');
 const Order = require('../models/Order');
@@ -36,7 +38,7 @@ const withPublicProductStats = (product, soldCountMap) => {
 };
 
 // Use 'images' as the field name, allow multiple files
-router.post('/', upload.array('images', 10), productController.createProduct);
+router.post('/', authMiddleware, adminMiddleware, upload.array('images', 10), productController.createProduct);
 
 // Get total product count
 router.get('/count', async (req, res) => {
@@ -75,7 +77,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Update product
-router.put('/:id', upload.array('images', 10), async (req, res) => {
+router.put('/:id', authMiddleware, adminMiddleware, upload.array('images', 10), async (req, res) => {
 	try {
 		const productId = req.params.id;
 		const { name, price, stock, description, category } = req.body;
@@ -121,7 +123,7 @@ router.put('/:id', upload.array('images', 10), async (req, res) => {
 });
 
 // Delete product
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authMiddleware, adminMiddleware, async (req, res) => {
 	try {
 		const productId = req.params.id;
 

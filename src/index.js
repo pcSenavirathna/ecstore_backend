@@ -11,9 +11,6 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Connect to MongoDB
-connectDB();
-
 app.use(express.json());
 app.use(cors());
 
@@ -27,6 +24,12 @@ app.use('/api/orders', ordersRoutes);
 app.use('/uploads', express.static('uploads')); // Serve uploaded images
 
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+const startServer = async () => {
+  await connectDB();
+
+  app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+  });
+};
+
+startServer();
