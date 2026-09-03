@@ -6,6 +6,7 @@ const adminMiddleware = require('../middlewares/admin');
 const productController = require('../controllers/productController');
 const Product = require('../models/Product');
 const Order = require('../models/Order');
+const User = require('../models/User');
 
 const getDeliveredSoldCounts = async () => {
 	const soldCounts = await Order.aggregate([
@@ -22,7 +23,16 @@ const getDeliveredSoldCounts = async () => {
 	return new Map(soldCounts.map((item) => [String(item._id), item.soldCount]));
 };
 
-const withPublicProductStats = (product, soldCountMap) => {
+const getWishlistCounts = async () => {
+	const wishlistCounts = await User.aggregate([
+		{ $unwind: '$wishlist' },
+		{ $group: { _id: '$wishlist', wishlistCount: { $sum: 1 } } },
+	]);
+
+	return new Map(wishlistCounts.map((item) => [String(item._id), item.wishlistCount]));
+};
+
+const withPublicProductStats = (product, soldCountMap, wishlistCountMap) => {
 	const data = product.toObject ? product.toObject() : product;
 	const feedbacks = Array.isArray(data.feedbacks) ? data.feedbacks : [];
 	const reviews = feedbacks.length;
@@ -34,6 +44,7 @@ const withPublicProductStats = (product, soldCountMap) => {
 		rating: Number(rating.toFixed(1)),
 		reviews,
 		soldCount: soldCountMap.get(String(data._id)) || 0,
+		wishlistCount: wishlistCountMap.get(String(data._id)) || 0,
 	};
 };
 
@@ -55,7 +66,8 @@ router.get('/', async (req, res) => {
 	try {
 		const products = await Product.find();
 		const soldCountMap = await getDeliveredSoldCounts();
-		res.json(products.map((product) => withPublicProductStats(product, soldCountMap)));
+		const wishlistCountMap = await getWishlistCounts();
+		res.json(products.map((product) => withPublicProductStats(product, soldCountMap, wishlistCountMap)));
 	} catch (err) {
 		res.status(500).json({ message: err.message });
 	}
@@ -70,7 +82,8 @@ router.get('/:id', async (req, res) => {
 		}
 
 		const soldCountMap = await getDeliveredSoldCounts();
-		res.json(withPublicProductStats(product, soldCountMap));
+		const wishlistCountMap = await getWishlistCounts();
+		res.json(withPublicProductStats(product, soldCountMap, wishlistCountMap));
 	} catch (err) {
 		res.status(500).json({ message: err.message });
 	}

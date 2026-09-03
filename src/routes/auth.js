@@ -12,6 +12,9 @@ const {
 	deleteAddress,
 	changePassword,
 	deleteMe,
+	getWishlist,
+	addWishlistItem,
+	removeWishlistItem,
 } = require('../controllers/authController');
 const authMiddleware = require('../middlewares/auth');
 
@@ -19,6 +22,9 @@ router.post('/signup', signup);
 router.post('/login', login);
 router.post('/google', googleAuth);
 router.get('/me', authMiddleware, getMe);
+router.get('/wishlist', authMiddleware, getWishlist);
+router.post('/wishlist/:productId', authMiddleware, addWishlistItem);
+router.delete('/wishlist/:productId', authMiddleware, removeWishlistItem);
 router.put('/me', authMiddleware, updateMe);
 router.post('/me/addresses', authMiddleware, addAddress);
 router.put('/me/addresses/:addressId', authMiddleware, updateAddress);

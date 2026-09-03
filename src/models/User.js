@@ -6,6 +6,12 @@ const userSchema = new mongoose.Schema({
 	password: { type: String },
 	mobile: { type: String, trim: true, default: '' },
 	role: { type: String, default: 'user' },
+	wishlist: [
+		{
+			type: mongoose.Schema.Types.ObjectId,
+			ref: 'Product',
+		}
+	],
 	addresses: [
 		{
 			name: { type: String, trim: true, default: '' },

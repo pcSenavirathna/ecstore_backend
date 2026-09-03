@@ -1,5 +1,6 @@
 const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
+const Product = require('../models/Product');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -320,5 +321,63 @@ exports.deleteMe = async (req, res) => {
     res.json({ message: 'Account deleted successfully' });
   } catch (err) {
     res.status(500).json({ message: 'Failed to delete account', error: err.message });
+  }
+};
+
+exports.getWishlist = async (req, res) => {
+  try {
+    const user = await User.findById(req.userId).select('wishlist');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    res.json({ wishlist: user.wishlist.map((productId) => String(productId)) });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to load wishlist', error: err.message });
+  }
+};
+
+exports.addWishlistItem = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const productExists = await Product.exists({ _id: productId });
+    if (!productExists) return res.status(404).json({ message: 'Product not found' });
+
+    const user = await User.findByIdAndUpdate(
+      req.userId,
+      { $addToSet: { wishlist: productId } },
+      { new: true }
+    ).select('wishlist');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const wishlistCount = await User.countDocuments({ wishlist: productId });
+    res.json({
+      message: 'Added to wishlist',
+      isWishlisted: true,
+      wishlist: user.wishlist.map((id) => String(id)),
+      wishlistCount,
+    });
+  } catch (err) {
+    res.status(400).json({ message: 'Failed to add to wishlist', error: err.message });
+  }
+};
+
+exports.removeWishlistItem = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const user = await User.findByIdAndUpdate(
+      req.userId,
+      { $pull: { wishlist: productId } },
+      { new: true }
+    ).select('wishlist');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const wishlistCount = await User.countDocuments({ wishlist: productId });
+    res.json({
+      message: 'Removed from wishlist',
+      isWishlisted: false,
+      wishlist: user.wishlist.map((id) => String(id)),
+      wishlistCount,
+    });
+  } catch (err) {
+    res.status(400).json({ message: 'Failed to remove from wishlist', error: err.message });
   }
 };
