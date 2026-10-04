@@ -1,14 +1,10 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const User = require('../models/User');
-const cloudinary = require('cloudinary').v2;
+const Coupon = require('../models/Coupon');
+const { cloudinary } = require('../config/cloudinary');
 const mongoose = require('mongoose');
-
-cloudinary.config({
-  cloud_name: 'dpge0qegf',
-  api_key: '188534693715682',
-  api_secret: '0izpSxrxkZB9gvciVIZdrc03kY8'
-});
+const { findUsableCoupon } = require('../routes/coupons');
 
 const parseMaybeJson = (value) => {
   if (value == null) {
@@ -31,12 +27,23 @@ const isAdminUser = async (userId) => {
 	return !!user && user.role === 'admin';
 };
 
+const SHIPPING_FEE = Number(process.env.STANDARD_SHIPPING_FEE || 400);
+const FREE_SHIPPING_ABOVE = Number(process.env.FREE_SHIPPING_ABOVE || 5000);
+const returnError = (message, status = 400) => Object.assign(new Error(message), { statusCode: status });
+
+const restoreStock = async (order) => {
+  if (order.stockRestored) return;
+  for (const item of order.items) {
+    await Product.findByIdAndUpdate(item.productId, { $inc: { stock: Number(item.quantity) || 0 } });
+  }
+  order.stockRestored = true;
+};
+
 // Create a new order
 exports.createOrder = async (req, res) => {
   try {
     const rawItems = parseMaybeJson(req.body.items);
     const rawAddress = parseMaybeJson(req.body.address);
-    const rawOrderSummary = parseMaybeJson(req.body.orderSummary);
     const paymentMethod = req.body.paymentMethod;
     const userId = req.userId; // From auth middleware
 
@@ -44,13 +51,16 @@ exports.createOrder = async (req, res) => {
     const address = (rawAddress && typeof rawAddress === 'object' && !Array.isArray(rawAddress))
       ? rawAddress
       : null;
-    const orderSummary = (rawOrderSummary && typeof rawOrderSummary === 'object' && !Array.isArray(rawOrderSummary))
-      ? rawOrderSummary
-      : null;
-
     // Validate required fields
-    if (!items.length || !address || !paymentMethod || !orderSummary) {
+    if (!items.length || !address || !['cod', 'bank'].includes(paymentMethod)) {
       return res.status(400).json({ message: 'Missing required order information' });
+    }
+    const requiredAddressFields = ['name', 'phone', 'street', 'city', 'province', 'country', 'zipCode'];
+    if (requiredAddressFields.some((field) => !String(address[field] || '').trim())) {
+      return res.status(400).json({ message: 'A complete delivery address is required' });
+    }
+    if (!/^\d{10}$/.test(String(address.phone))) {
+      return res.status(400).json({ message: 'Enter a valid 10-digit phone number' });
     }
 
     if (paymentMethod === 'bank' && !req.file) {
@@ -73,16 +83,17 @@ exports.createOrder = async (req, res) => {
 
 		  normalizedItems.push({
 			  productId: String(rawProductId),
-			  name: item?.name || '',
-			  price: Number(item?.price) || 0,
-			  image: item?.image || '',
+		  name: '',
+		  price: 0,
+		  image: '',
+		  variant: typeof item?.variant === 'string' ? item.variant.slice(0, 80) : '',
 			  quantity,
 		  });
 	  }
 
 	  // Check stock availability first.
 	  const productIds = normalizedItems.map((item) => item.productId);
-	  const products = await Product.find({ _id: { $in: productIds } }).select('_id stock name');
+	  const products = await Product.find({ _id: { $in: productIds } }).select('_id stock name price images');
 	  const productMap = new Map(products.map((p) => [String(p._id), p]));
 
 	  for (const item of normalizedItems) {
@@ -96,6 +107,26 @@ exports.createOrder = async (req, res) => {
 				  message: `Not enough stock for ${product.name}. Available: ${product.stock}, requested: ${item.quantity}`,
 			  });
 		  }
+		  // Snapshot trusted catalog values; never accept prices or images from a browser request.
+		  item.name = product.name;
+		  item.price = Number(product.price);
+		  item.image = product.images?.[0] || '';
+	  }
+
+	  const subtotal = normalizedItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+	  const shippingFee = subtotal >= FREE_SHIPPING_ABOVE ? 0 : SHIPPING_FEE;
+	  let discount = 0;
+	  let couponData;
+	  let appliedCoupon;
+	  if (req.body.couponCode) {
+	    const couponResult = await findUsableCoupon(req.body.couponCode, subtotal);
+	    if (!couponResult || couponResult.invalidReason) return res.status(400).json({ message: couponResult?.invalidReason || 'Invalid or expired coupon' });
+	    const { coupon } = couponResult;
+	    discount = coupon.type === 'percent' ? subtotal * (coupon.value / 100) : coupon.value;
+	    if (coupon.maxDiscount) discount = Math.min(discount, coupon.maxDiscount);
+	    discount = Math.min(subtotal, Math.round(discount * 100) / 100);
+	    couponData = { code: coupon.code, discount };
+	    appliedCoupon = coupon;
 	  }
 
 	  // Deduct stock. If a race condition occurs, rollback previous deductions.
@@ -118,13 +149,14 @@ exports.createOrder = async (req, res) => {
 		  appliedDeductions.push({ productId: item.productId, quantity: item.quantity });
 	  }
 
-    // Create order object
+	    // Create order object from calculated totals only.
     const orderData = {
       userId,
 		items: normalizedItems,
       address,
       paymentMethod,
-      orderSummary,
+      orderSummary: { subtotal, shippingFee, discount, total: subtotal + shippingFee - discount },
+	  ...(couponData && { coupon: couponData }),
       orderStatus: 'pending',
       paymentStatus: paymentMethod === 'cod' ? 'verified' : 'pending',
     };
@@ -143,6 +175,7 @@ exports.createOrder = async (req, res) => {
     const newOrder = new Order(orderData);
 	  try {
 		await newOrder.save();
+		if (appliedCoupon) await Coupon.findByIdAndUpdate(appliedCoupon._id, { $inc: { usedCount: 1 } });
 	} catch (saveError) {
 		// Roll back stock deductions if order save fails.
 		for (const applied of normalizedItems) {
@@ -158,7 +191,7 @@ exports.createOrder = async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating order:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(error.statusCode || 500).json({ message: error.statusCode ? error.message : 'Server error' });
   }
 };
 
@@ -352,20 +385,28 @@ exports.updateOrderStatus = async (req, res) => {
 	  }
 
     const { orderId } = req.params;
-    const { orderStatus, paymentStatus } = req.body;
-
-    const order = await Order.findByIdAndUpdate(
-      orderId,
-      {
-        ...(orderStatus && { orderStatus }),
-        ...(paymentStatus && { paymentStatus }),
-      },
-      { new: true }
-    );
+    const { orderStatus, paymentStatus, tracking } = req.body;
+    const order = await Order.findById(orderId);
 
     if (!order) {
       return res.status(404).json({ message: 'Order not found' });
     }
+
+    const validStatuses = ['pending', 'confirmed', 'shipped', 'delivered', 'cancelled'];
+    const validPayments = ['pending', 'verified', 'failed'];
+    if (orderStatus && !validStatuses.includes(orderStatus)) return res.status(400).json({ message: 'Invalid order status' });
+    if (paymentStatus && !validPayments.includes(paymentStatus)) return res.status(400).json({ message: 'Invalid payment status' });
+    if (orderStatus === 'cancelled') await restoreStock(order);
+    if (orderStatus) order.orderStatus = orderStatus;
+    if (paymentStatus) order.paymentStatus = paymentStatus;
+    if (tracking && typeof tracking === 'object') {
+      order.tracking = {
+        courier: String(tracking.courier || '').slice(0, 100),
+        trackingNumber: String(tracking.trackingNumber || '').slice(0, 100),
+        trackingUrl: String(tracking.trackingUrl || '').slice(0, 500),
+      };
+    }
+    await order.save();
 
     res.status(200).json({
       message: 'Order updated successfully',
@@ -375,6 +416,49 @@ exports.updateOrderStatus = async (req, res) => {
     console.error('Error updating order:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
+};
+
+exports.cancelOrder = async (req, res) => {
+  try {
+    const order = await Order.findOne({ _id: req.params.orderId, userId: req.userId });
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (!['pending', 'confirmed'].includes(order.orderStatus)) return res.status(400).json({ message: 'Only pending or confirmed orders can be cancelled' });
+    order.orderStatus = 'cancelled';
+    order.cancellationReason = String(req.body.reason || '').trim().slice(0, 500);
+    await restoreStock(order);
+    await order.save();
+    return res.json({ message: 'Order cancelled successfully', order });
+  } catch (error) { return res.status(500).json({ message: 'Unable to cancel order' }); }
+};
+
+exports.requestReturn = async (req, res) => {
+  try {
+    const order = await Order.findOne({ _id: req.params.orderId, userId: req.userId });
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (order.orderStatus !== 'delivered') return res.status(400).json({ message: 'Returns can be requested after delivery' });
+    const deliveredAt = order.updatedAt || order.createdAt;
+    if (Date.now() - new Date(deliveredAt).getTime() > 7 * 24 * 60 * 60 * 1000) return res.status(400).json({ message: 'Return window has expired' });
+    const reason = String(req.body.reason || '').trim();
+    if (reason.length < 5) return res.status(400).json({ message: 'Please provide a return reason' });
+    order.returnRequest = { requestedAt: new Date(), reason: reason.slice(0, 1000), status: 'requested' };
+    await order.save();
+    return res.status(201).json({ message: 'Return request submitted', order });
+  } catch (error) { return res.status(500).json({ message: 'Unable to submit return request' }); }
+};
+
+exports.reorderOrder = async (req, res) => {
+  try {
+    const order = await Order.findOne({ _id: req.params.orderId, userId: req.userId }).select('items');
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    const unavailable = [];
+    const items = [];
+    for (const item of order.items) {
+      const product = await Product.findById(item.productId).select('_id name price images stock');
+      if (!product || product.stock < item.quantity) { unavailable.push(item.name); continue; }
+      items.push({ productId: product._id, name: product.name, price: product.price, image: product.images?.[0] || '', stock: product.stock, quantity: item.quantity, variant: item.variant || '' });
+    }
+    return res.json({ items, unavailable });
+  } catch (error) { return res.status(500).json({ message: 'Unable to prepare reorder' }); }
 };
 
 // Delete receipt from Cloudinary (if needed)

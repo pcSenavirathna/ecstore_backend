@@ -5,7 +5,14 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const JWT_SECRET = process.env.JWT_SECRET || 'yoursecretkey';
+const JWT_SECRET = process.env.JWT_SECRET;
+const getJwtSecret = () => {
+  if (!JWT_SECRET || JWT_SECRET.length < 32) {
+    throw Object.assign(new Error('Authentication is not configured securely'), { statusCode: 503 });
+  }
+  return JWT_SECRET;
+};
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const normalizeAddress = (address = {}) => ({
   name: typeof address.name === 'string' ? address.name.trim() : '',
@@ -41,33 +48,39 @@ const ensureOneDefaultAddress = (user) => {
 
 exports.signup = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const name = String(req.body.name || '').trim();
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const password = String(req.body.password || '');
+    if (name.length < 2 || name.length > 100 || !emailPattern.test(email) || password.length < 8) {
+      return res.status(400).json({ message: 'Enter a valid name, email, and a password of at least 8 characters' });
+    }
     const existing = await User.findOne({ email });
     if (existing) return res.status(400).json({ message: 'Email already exists' });
 
     const hashed = await bcrypt.hash(password, 10);
     const user = await User.create({ name, email, password: hashed });
 
-    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '14d' }); // 2 weeks
+    const token = jwt.sign({ id: user._id }, getJwtSecret(), { expiresIn: '14d' });
     res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email } });
   } catch (err) {
-    res.status(500).json({ message: 'Signup failed', error: err.message });
+    res.status(err.statusCode || 500).json({ message: err.statusCode ? err.message : 'Signup failed' });
   }
 };
 
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const password = String(req.body.password || '');
     const user = await User.findOne({ email });
     if (!user) return res.status(400).json({ message: 'Invalid credentials' });
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(400).json({ message: 'Invalid credentials' });
 
-    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '14d' }); // 2 weeks
+    const token = jwt.sign({ id: user._id }, getJwtSecret(), { expiresIn: '14d' });
     res.json({ token, user: { id: user._id, name: user.name, email: user.email } });
   } catch (err) {
-    res.status(500).json({ message: 'Login failed', error: err.message });
+    res.status(err.statusCode || 500).json({ message: err.statusCode ? err.message : 'Login failed' });
   }
 };
 
@@ -88,7 +101,7 @@ exports.googleAuth = async (req, res) => {
       user = await User.create({ name, email, password: Math.random().toString(36), role: 'user' });
     }
 
-    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '14d' }); // 2 weeks
+    const token = jwt.sign({ id: user._id }, getJwtSecret(), { expiresIn: '14d' });
     res.json({
       token,
       user: { id: user._id, name: user.name, email: user.email, role: user.role }

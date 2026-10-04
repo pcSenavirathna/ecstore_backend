@@ -1,12 +1,12 @@
 const mongoose = require('mongoose');
 
 const productSchema = new mongoose.Schema({
-  name: String,
-  price: Number,
+  name: { type: String, required: true, trim: true, maxlength: 180 },
+  price: { type: Number, required: true, min: 0 },
   originalPrice: Number,
-  images: [String],
-  category: String,
-  description: String,
+  images: { type: [String], default: [] },
+  category: { type: String, required: true, trim: true, maxlength: 80 },
+  description: { type: String, default: '', maxlength: 5000 },
   discount: Number,
   rating: {
     type: Number,
@@ -43,7 +43,7 @@ const productSchema = new mongoose.Schema({
       },
     }
   ],
-  stock: Number,
+  stock: { type: Number, required: true, min: 0, default: 0 },
   colors: [String], // Array of colors
   sizes: [String], // Array of sizes
   variantType: {
@@ -52,5 +52,7 @@ const productSchema = new mongoose.Schema({
     default: null
   },
 }, { timestamps: true });
+
+productSchema.index({ name: 'text', description: 'text', category: 'text' });
 
 module.exports = mongoose.model('Product', productSchema);

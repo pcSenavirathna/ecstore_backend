@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const upload = require('../middlewares/upload');
+const { upload, requireUploadConfig } = require('../middlewares/upload');
 const authMiddleware = require('../middlewares/auth');
 const adminMiddleware = require('../middlewares/admin');
 const productController = require('../controllers/productController');
@@ -49,7 +49,7 @@ const withPublicProductStats = (product, soldCountMap, wishlistCountMap) => {
 };
 
 // Use 'images' as the field name, allow multiple files
-router.post('/', authMiddleware, adminMiddleware, upload.array('images', 10), productController.createProduct);
+router.post('/', authMiddleware, adminMiddleware, requireUploadConfig, upload.array('images', 10), productController.createProduct);
 
 // Get total product count
 router.get('/count', async (req, res) => {
@@ -64,10 +64,33 @@ router.get('/count', async (req, res) => {
 // Get all products
 router.get('/', async (req, res) => {
 	try {
-		const products = await Product.find();
+		const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+		const limit = Math.min(60, Math.max(1, Number.parseInt(req.query.limit, 10) || 24));
+		const search = String(req.query.search || '').trim();
+		const category = String(req.query.category || '').trim();
+		const minPrice = Number(req.query.minPrice);
+		const maxPrice = Number(req.query.maxPrice);
+		const sort = String(req.query.sort || 'newest');
+		const query = {};
+		if (search) query.$text = { $search: search };
+		if (category && category !== 'All') query.category = category;
+		if (Number.isFinite(minPrice) || Number.isFinite(maxPrice)) {
+			query.price = {};
+			if (Number.isFinite(minPrice)) query.price.$gte = minPrice;
+			if (Number.isFinite(maxPrice)) query.price.$lte = maxPrice;
+		}
+		const sortOption = sort === 'price-asc' ? { price: 1 } : sort === 'price-desc' ? { price: -1 } : sort === 'rating' ? { rating: -1 } : { createdAt: -1 };
+		const [products, total] = await Promise.all([
+			Product.find(query).sort(sortOption).skip((page - 1) * limit).limit(limit),
+			Product.countDocuments(query),
+		]);
 		const soldCountMap = await getDeliveredSoldCounts();
 		const wishlistCountMap = await getWishlistCounts();
-		res.json(products.map((product) => withPublicProductStats(product, soldCountMap, wishlistCountMap)));
+		const result = products.map((product) => withPublicProductStats(product, soldCountMap, wishlistCountMap));
+		if (req.query.page || req.query.limit || search || category || req.query.sort || req.query.minPrice || req.query.maxPrice) {
+			return res.json({ products: result, page, limit, total, pages: Math.ceil(total / limit) });
+		}
+		res.json(result);
 	} catch (err) {
 		res.status(500).json({ message: err.message });
 	}
@@ -90,7 +113,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Update product
-router.put('/:id', authMiddleware, adminMiddleware, upload.array('images', 10), async (req, res) => {
+router.put('/:id', authMiddleware, adminMiddleware, requireUploadConfig, upload.array('images', 10), async (req, res) => {
 	try {
 		const productId = req.params.id;
 		const { name, price, stock, description, category } = req.body;

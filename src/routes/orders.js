@@ -8,9 +8,12 @@ const {
   updateOrderReceipt,
   updateOrderStatus,
   addOrderItemFeedback,
+  cancelOrder,
+  requestReturn,
+  reorderOrder,
 } = require('../controllers/ordersController');
 const authMiddleware = require('../middlewares/auth');
-const upload = require('../middlewares/upload');
+const { upload } = require('../middlewares/upload');
 
 // Create a new order (protected - with optional file upload for bank receipt)
 router.post('/', authMiddleware, upload.single('receipt'), createOrder);
@@ -29,6 +32,9 @@ router.put('/:orderId/receipt', authMiddleware, upload.single('receipt'), update
 
 // Add delivered item feedback (protected)
 router.post('/:orderId/items/:productId/feedback', authMiddleware, addOrderItemFeedback);
+router.post('/:orderId/cancel', authMiddleware, cancelOrder);
+router.post('/:orderId/return-request', authMiddleware, requestReturn);
+router.post('/:orderId/reorder', authMiddleware, reorderOrder);
 
 // Update order status (protected)
 router.put('/:orderId/status', authMiddleware, updateOrderStatus);
